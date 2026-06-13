@@ -8,6 +8,43 @@
                  caption: none, caption-options: none, caption-arrow: 0,
                  debug: false
 ) = context {
+    // Get a list of elements,
+    // querying a label if it is a label, 
+    let get-elements(elem) = {
+        if type(elem) == label {
+            query(elem)            
+        } else if type(elem) == array {
+            elem
+        } else if type(elem) == content {
+            (elem,)
+        } else {
+            assert(false, message: "`from` and `to` should be labels, contents
+                or arrays of contents, but " + repr(elem) + " is "
+                + repr(type(elem)))
+        }
+    }
+
+    let coordinates(elem, offset: (0pt, 0pt)) = {
+        let (dx, dy) = if elem.has("value") {(
+            elem.value.at(0).to-absolute().pt(),
+            elem.value.at(1).to-absolute().pt()
+        )} else {(0, 0)}
+
+        let loc = elem.location().position()
+
+        // Coordinates of the from and to positions without offsets so far.
+        let fx = loc.x.to-absolute().pt()
+        let fy = page.height.to-absolute().pt() - loc.y.to-absolute().pt()
+
+        // Apply offsets
+        return (
+            (fx + offset.at(0).to-absolute().pt() +
+             both-offset.at(0).to-absolute().pt() + dx),
+            (fy + offset.at(1).to-absolute().pt() +
+             both-offset.at(1).to-absolute().pt() + dy)  
+        ) 
+    }
+
     // Only import necessary components for example not to override
     // standard stroke definition.
     import cetz.draw: rect, bezier, circle, line, content
@@ -77,7 +114,7 @@
 
     // Given start and end coordinates and a caption,
     // get all the content to draw
-    let draw-arrow((fx, fy), (tx, ty), caption) = {
+    let get-arrow((fx, fy), (tx, ty), caption) = {
         // If tips aren't set together, draw individual marks.
         // Otherwise, draw both-tip for both ends.
         let mark = if (both-tip == none) {(start: from-tip, end: tip)} else {
@@ -129,31 +166,10 @@
         )
     }
 
-    let coordinates(elem) = {
-        let (dx, dy) = if elem.has("value") {(
-            elem.value.at(0).to-absolute().pt(),
-            elem.value.at(1).to-absolute().pt()
-        )} else {(0, 0)}
+    let froms = get-elements(from).map(coordinates.with(offset: from-offset))
+    let tos = get-elements(to).map(coordinates.with(offset: to-offset))
 
-        let loc = elem.location().position()
-
-        // Coordinates of the from and to positions without offsets so far.
-        let fx = loc.x.to-absolute().pt()
-        let fy = page.height.to-absolute().pt() - loc.y.to-absolute().pt()
-
-        // Apply offsets
-        return (
-            (fx + from-offset.at(0).to-absolute().pt() +
-             both-offset.at(0).to-absolute().pt() + dx),
-            (fy + from-offset.at(1).to-absolute().pt() +
-             both-offset.at(1).to-absolute().pt() + dy)  
-        ) 
-    }
-
-    let froms = query(from).map(coordinates)
-    let tos = query(to).map(coordinates)
-
-    // Cartesian product of from's and to's, with captions as the third element
+    // Cartesian product of from's and to's, with the caption as the third element
     let arrows = if caption-arrow == "all" {
         froms.map(from => tos.map(to => (from, to, caption))).join()
     } else if type(caption-arrow) == int {
@@ -170,7 +186,7 @@
     draw-canvas(
         // The arrows with captions should be printed last, to not be covered by other arrows
         arrows.sorted(key: it => it.at(2) != none)
-            .map(it => draw-arrow(..it)).join()
+            .map(it => get-arrow(..it)).join()
     )
 }
 
