@@ -5,7 +5,8 @@
 #let label-arrow(from, to, bend: 0, tip: "straight", from-tip: none,
                  both-tip: none, stroke: auto, from-offset: (0pt, 0pt),
                  to-offset: (0pt, 0pt), both-offset: (0pt, 0pt),
-                 caption: none, caption-options: none, debug: false
+                 caption: none, caption-options: none, caption-arrow: 0,
+                 debug: false
 ) = context {
     // Only import necessary components for example not to override
     // standard stroke definition.
@@ -69,57 +70,21 @@
         )
     }
 
+
     // Where the function call is in the layout. Necessary to place the canvas
     // in the top left corner of the page later.
     let here-loc = locate(here()).position()
 
-    // Get the from position and offsets if available.
-    let from-loc = locate(from).position()
-    let from-deltas = query(from).first()
-    let from-dx
-    let from-dy
-    if from-deltas.has("value") {
-        from-dx = from-deltas.value.at(0).to-absolute().pt()
-        from-dy = from-deltas.value.at(1).to-absolute().pt()
-    } else { (from-dx, from-dy) = (0, 0) }
+    // Given start and end coordinates and a caption,
+    // get all the content to draw
+    let draw-arrow((fx, fy), (tx, ty), caption) = {
+        // If tips aren't set together, draw individual marks.
+        // Otherwise, draw both-tip for both ends.
+        let mark = if (both-tip == none) {(start: from-tip, end: tip)} else {
+            (symbol: both-tip)
+        }
 
-    // Get the to position and offsets if available.
-    let to-loc = locate(to).position()
-    let to-deltas = query(to).first()
-    let to-dx
-    let to-dy
-    if to-deltas.has("value") {
-        to-dx = to-deltas.value.at(0).to-absolute().pt()
-        to-dy = to-deltas.value.at(1).to-absolute().pt()
-    } else { (to-dx, to-dy) = (0, 0) }
-
-    // Coordinates of the from and to positions without offsets so far.
-    let fx = from-loc.x.to-absolute().pt()
-    let fy = page.height.to-absolute().pt() - from-loc.y.to-absolute().pt()
-    let tx = to-loc.x.to-absolute().pt()
-    let ty = page.height.to-absolute().pt() - to-loc.y.to-absolute().pt()
-
-    // Apply offsets
-    fx = (fx + from-offset.at(0).to-absolute().pt() +
-          both-offset.at(0).to-absolute().pt() + from-dx)
-    fy = (fy + from-offset.at(1).to-absolute().pt() +
-          both-offset.at(1).to-absolute().pt() + from-dy)
-    tx = (tx + to-offset.at(0).to-absolute().pt() +
-          both-offset.at(0).to-absolute().pt() + to-dx)
-    ty = (ty + to-offset.at(1).to-absolute().pt() +
-          both-offset.at(1).to-absolute().pt() + to-dy)
-
-    // If tips aren't set together, draw individual marks.
-    // Otherwise, draw both-tip for both ends.
-    let mark = if (both-tip == none) {(start: from-tip, end: tip)} else {
-        (symbol: both-tip)
-    }
-    // Actual drawing of line.
-    place(dx: -1 * here-loc.x, dy: -1 * here-loc.y, cetz.canvas(length: 1pt, {
-        // This rectangle is used to force the cetz canvas to take the size of
-        // the entire page and thus properly locate coordinates from base typst
-        // on the page.
-        rect((0, 0), (page.width, page.height), stroke: none)
+        // Actual drawing of line.
         let (line, center, debug-points) = (
             if bend == "-|" {
                 chain-line((fx, fy), (tx, fy), (tx, ty),
@@ -135,6 +100,7 @@
                             mark: mark, stroke: stroke)
             }
         )
+
         line
         if caption != none {
             content(center, caption, ..caption-options)
@@ -146,7 +112,66 @@
             circle((tx, ty), stroke: red)
             debug-points.map(circle.with(stroke: blue)).join()
         }
-    }))
+    }
+
+    // Draw the cetz canvas with the given content
+    let draw-canvas(content) = {
+        place(dx: -1 * here-loc.x, dy: -1 * here-loc.y,
+            cetz.canvas(length: 1pt, {
+                // This rectangle is used to force the cetz canvas to take the size of
+                // the entire page and thus properly locate coordinates from base typst
+                // on the page.
+                rect((0, 0), (page.width, page.height), stroke: none)
+
+                // Arrows and everything else
+                content
+            })
+        )
+    }
+
+    let coordinates(elem) = {
+        let (dx, dy) = if elem.has("value") {(
+            elem.value.at(0).to-absolute().pt(),
+            elem.value.at(1).to-absolute().pt()
+        )} else {(0, 0)}
+
+        let loc = elem.location().position()
+
+        // Coordinates of the from and to positions without offsets so far.
+        let fx = loc.x.to-absolute().pt()
+        let fy = page.height.to-absolute().pt() - loc.y.to-absolute().pt()
+
+        // Apply offsets
+        return (
+            (fx + from-offset.at(0).to-absolute().pt() +
+             both-offset.at(0).to-absolute().pt() + dx),
+            (fy + from-offset.at(1).to-absolute().pt() +
+             both-offset.at(1).to-absolute().pt() + dy)  
+        ) 
+    }
+
+    let froms = query(from).map(coordinates)
+    let tos = query(to).map(coordinates)
+
+    // Cartesian product of from's and to's, with captions as the third element
+    let arrows = if caption-arrow == "all" {
+        froms.map(from => tos.map(to => (from, to, caption))).join()
+    } else if type(caption-arrow) == int {
+        let arrows = froms.map(from => tos.map(to => (from, to, none))).join()
+        // Only draw the caption on one of the arrows
+        arrows.at(caption-arrow).at(2) = caption
+        arrows
+    } else {
+        assert(false,
+               message: "`caption-arrow` should be either an integer or \"all\""
+        )
+    }
+
+    draw-canvas(
+        // The arrows with captions should be printed last, to not be covered by other arrows
+        arrows.sorted(key: it => it.at(2) != none)
+            .map(it => draw-arrow(..it)).join()
+    )
 }
 
 #let al = arrow-label
